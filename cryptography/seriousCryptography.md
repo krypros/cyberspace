@@ -164,6 +164,133 @@ PRNG应该定期使用攻击者难以猜测的R值来调用refresh
 $P_2 = \mathbf{R}(P_1)$    =>   $C_2 = \mathbf{R}(C_1)$   
 知道一轮的输入和输出常常有助于恢复密钥
 
-- 替换-置换网络
+- 替换-置换网络  
+混淆（关于深度） -> 输入（明文和加密密钥）经历复杂的变换（替换）  
+扩散（关于宽度） -> 这些变换等同地依赖于输入的所有比特位（置换）  
 
+替换 ->  S盒或替换盒  
+扩散 ->  线性代数和矩阵乘法来混合比特  
 
+- Feistel结构  
+20世纪70年代，IBM设计的：  
+（1）将64比特分成两个32比特的$L$和$R$；
+（2）设$L$为$L \oplus \mathbf{F}(R)$，$\mathbf{F}$是替换-置换轮函数；  
+（3）交换$L$和$R$的值；  
+（4）转到步骤（2），重复15次；  
+（5）合并$L$和$R$为64比特输出分组。  
+![Feistel分组密码的两种等价的构建形式](image/seriousCryptography/4-1.png)  
+交替使用$L = L \oplus \mathbf{F}(R)$，$R = R \oplus \mathbf{F}(L)$。（两次轮函数使用的子密钥不同）  
+
+### 4.3 高级加密标准（AES）
+- AES内核  
+AES使用128比特、192比特或256比特的秘密密钥处理128比特的分组  
+
+为了转换明文状态，AES使用如下图所示的SPN结构，其中128比特密钥计算10轮，192比特密钥计算12轮，256比特密钥计算14轮  
+
+![AES的内部操作](image/seriousCryptography/4-2.png)
+
+每轮的四个步骤：  
+（1）AddRoundKey：异或（XOR）子密钥以生成一个内部状态【加密不依赖于密钥】  
+（2）SubBytes：利用S盒把（s0，s1，…，s15）中的每个字节都替换成一个新的字节。在这个例子中，S盒是256个元素的查找表。【引入非线性操作】  
+（3）ShiftRows：对状态中第i行循环移动i个位置，范围从0到3。  
+![ShiftRows将内部状态的每行的字节进行移位](image/seriousCryptography/4-3.png)
+（4）MixColumns：对状态的4列中的每一列应用相同的线性转换
+
+密钥调度函数KeyExpansion是AES密钥调度算法，它创建11个16字节的子密钥（K0，K1，…，K10），每个子密钥都是由16字节的密钥使用相同S盒进行SubBytes和XOR运算得到的【避免受到滑动攻击】
+> 给定任何一个子密钥Ki，攻击者可以通过可逆算法来确定所有其他的子密钥以及主密钥K
+
+AES的最后一轮不包括MixColumns操作（节省无用的线性运算）  
+
+- python使用AES  
+```python
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from binascii import hexlify as hexa
+from os import urandom
+
+# 16位伪随机密钥种子
+k = urandom(16)
+cipher = Cipher(algorithms.AES(k), modes.ECB(), backend = default_backend())
+aes_encrypt = cipher.encryptor()
+aes_decrypt = cipher.decryptor()
+
+# 明文
+p = '\x00' * 16
+
+# 加密
+c = aes_encrypt.update(p) + aes_encrypt.finalize()
+print(hexa(c))
+
+# 解密
+p = aes_decrypt.update(c) + aes_decrypt.finalize()
+print(hexa(p))
+```
+
+### 4.4 实现AES
+AES快速实现软件使用特殊的技术，其被称为基于表的实现和原生指令集  
+- 基于表的实现  
+基于表的实现利用**查询硬编码**在程序中并在执行时加载到内存中的表和XOR运算组合操作替换了SubBytes-ShiftRows-MixColumns运算  
+容易受到基于时间的缓存攻击，当程序读取或写入缓存内存中的元素时，基于时间的缓存攻击利用时间变化差异进行攻击
+
+- 原生指令集  
+AES-NI解决了AES软件实现中存在的基于时间的缓存攻击问题
+
+### 4.5 工作方式
+- 电码本模式（ECB）  
+$C_i=\mathbf{E}(K,P_i)$，ECB模式不安全，相同的密文分组对应相同的明文分组  
+- 密码分组链接（CBC）模式  
+$C_i=\mathbf{E}(K,P_i \oplus C_{i-1})$
+![CBC模式](image/seriousCryptography/4-4.png)
+
+每个密文分组依赖于所有先前的分组，并确保相同的明文分组不会生成相同的密文分组
+
+加密第一个分组P1时，没有以前的密文分组可以使用，所以CBC取一个随机的初始值（IV） -> 保证两次加密调用不同的初始值
+
+- 如何在CBC模式中加密消息  
+处理长度不是分组长度的倍数的明文:
+(1)填充，使密文比明文稍长  
+(2)密文窃取，产生与明文长度相同的密文  
+
+- 填充消息  
+分组密码的填充采用RFC 5652中制定的PKCS#7标准
+
+- 密文窃取  
+密文与明文的长度完全相同，密文窃取可以抵御Padding Oracle攻击
+
+在CBC模式下，密文窃取用前一个密文分组的比特扩展最后一个不完整的明文分组，然后对得到的分组进行加密。
+![CBC模式加密的密文窃取](image/seriousCryptography/4-5.png)
+我们有三个分组，其中最后一个分组P3是不完整的（用零表示）。P3异或（XOR）前一个分组密文的后一部分，得到的加密结果为C2。最后的密文分组C3，是前一个密文分组的前一部分组成的。解密则是逆运算。
+
+- 计数（CTR）模式  
+把分组密码转换成序列密码  
+分组密码算法不会转换明文数据。相反，它将加密由计数器和随机数（nonce）组成的分组。  
+1）在消息中没有两个分组使用相同的计数器，但是不同的消息可以使用相同的计数器序列
+2）随机数是一个只使用一次的数字，对于一条消息中的所有分组都是相同的，但是没有两个消息会使用相同的随机数
+
+在CTR模式下，加密算法就是使**明文**XOR（异或）**随机数N和计数器Ctr得到的序列**，解密也是相同的
+![CTR模式](image/seriousCryptography/4-6.png)
+
+与CBC的初始值不同，CTR的随机数不需要是随机的，它只需要是唯一的。
+
+CTR的一个特别的好处是，它比其他模式更快。它不仅是并行的，而且您甚至可以在知道消息之前先加密，方法是选择一个随机数，事先计算稍后将与明文进行异或操作的流。
+
+### 4.6 攻击方式
+- 中间相遇攻击  
+3DES使用加密-解密-加密模式而非加密三次，是因为允许系统在必要时调用3DES接口使用DES
+![3DES分组密码的构建](image/seriousCryptography/4-7.png)
+MitM攻击将使得双DES只能像单个DES一样安全  
+
+中间相遇攻击双DES的过程：  
+（1）已知明文$P$和两个未知的56比特密钥$K_1$和$K_2$，$C = \mathbf{E}(K_2, \mathbf{E}(K_1, P))$  
+（2）对于$K_2$的所有$2^{56}$个值，计算$\mathbf{D}(K_2, C)$并检查结果值作为索引  
+（3）如果发现中间值作为表的索引，则从表中取出响应一致的$K_1$，并通过使用其他相对应的$P$和$C$验证找到的$(K_1,K_2)$是否正确
+![中间相遇攻击](image/seriousCryptography/4-8.png)
+
+- Padding Oracle攻击  
+一个根据CBC加密密文中的填充是否有效而有不同行为的系统。
+给定一个Padding Oracle，其记录哪些是有效的输入，哪些是无效的输入，并利用这些信息来解密所选择的密文。
+
+假设要解密密文分组$C_2$，$X$为您要查找的值，$P_2$为在CBC模式下解密后获得的明文分组  
+如果选择一个随机分组$C_1$，并将两个分组密文$C_1||C_2$发送到算法  
+解密将在$C_1⊕P_2＝X$以有效填充结尾时才成功
+![Padding Oracle攻击通过选择C1和检查填充有效性恢复X](image/seriousCryptography/4-9.png)
