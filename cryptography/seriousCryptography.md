@@ -482,6 +482,13 @@ MD4、MD5、SHA-1和SHA-2系列，以及不太为人所知的RIPEMD和Whirlpool�
 ### 7.6 攻击
 
 
+## 11 Diffie-Hellman
+
+### 11.2 Diffie-Hellman问题
+1）计算Diffie-Hellman问题  
+（Computational Diffie-Hellman problem，CDH）:仅给定公共值$g^a$和$g^b$而不提供任何秘密值a或b来计算共享秘密$g^{ab}$的问题
+
+2）决策Diffie-Hellman问题
 
 
 
